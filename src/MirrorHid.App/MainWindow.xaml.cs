@@ -14,8 +14,8 @@ public partial class MainWindow : Window
 {
     private const double DefaultWindowWidth = 430;
     private const double DefaultWindowHeight = 800;
-    private const byte LeftButtonMask = 0x01;
-    private const byte RightButtonMask = 0x02;
+    private const byte DirectDragButtonMask = 0x02;
+    private const byte CustomRightButtonMask = 0x04;
 
     private enum HotkeyCaptureTarget
     {
@@ -1069,7 +1069,7 @@ public partial class MainWindow : Window
         {
             QueueAbsolutePosition(current);
         }
-        QueueButtonState((byte)(_desiredButtons | LeftButtonMask));
+        QueueButtonState((byte)(_desiredButtons | DirectDragButtonMask));
     }
 
     private void EndLeftPress(Point current)
@@ -1081,12 +1081,12 @@ public partial class MainWindow : Window
 
         _leftButtonDown = false;
         ActiveBannerText.Text =
-            "CONTROL ACTIVE  •  Left-drag is direct  •  Right-click is customizable";
+            "CONTROL ACTIVE  •  LEFT B2  •  RIGHT B3  •  WHEEL B4/B5";
         if (_absoluteMode)
         {
             QueueAbsolutePosition(current);
         }
-        QueueButtonState((byte)(_desiredButtons & ~LeftButtonMask));
+        QueueButtonState((byte)(_desiredButtons & ~DirectDragButtonMask));
         if (!_rightButtonDown)
         {
             Mouse.Capture(null);
@@ -1108,7 +1108,7 @@ public partial class MainWindow : Window
         {
             QueueAbsolutePosition(current);
         }
-        QueueButtonState((byte)(_desiredButtons | RightButtonMask));
+        QueueButtonState((byte)(_desiredButtons | CustomRightButtonMask));
     }
 
     private void EndRightPress(Point current)
@@ -1123,7 +1123,7 @@ public partial class MainWindow : Window
         {
             QueueAbsolutePosition(current);
         }
-        QueueButtonState((byte)(_desiredButtons & ~RightButtonMask));
+        QueueButtonState((byte)(_desiredButtons & ~CustomRightButtonMask));
         if (!_leftButtonDown)
         {
             Mouse.Capture(null);

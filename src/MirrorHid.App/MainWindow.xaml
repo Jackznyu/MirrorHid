@@ -87,7 +87,7 @@
                     CornerRadius="6,6,0,0"
                     IsHitTestVisible="False">
                 <TextBlock x:Name="ActiveBannerText"
-                           Text="LEFT-DRAG IS DIRECT  •  BOTH BUTTONS ARE CUSTOMIZABLE"
+                           Text="LEFT B2  •  RIGHT B3  •  WHEEL B4/B5"
                            Foreground="#DFFFFFFF"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center" />
