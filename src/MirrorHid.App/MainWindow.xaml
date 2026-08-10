@@ -87,7 +87,7 @@
                     CornerRadius="6,6,0,0"
                     IsHitTestVisible="False">
                 <TextBlock x:Name="ActiveBannerText"
-                           Text="F9 NATIVE HOLD AND DRAG  •  F10 calibrates"
+                           Text="LEFT-DRAG IS DIRECT  •  BOTH BUTTONS ARE CUSTOMIZABLE"
                            Foreground="#DFFFFFFF"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center" />
@@ -100,8 +100,6 @@
                     Focusable="True"
                     MouseEnter="ControlSurface_MouseEnter"
                     MouseLeave="ControlSurface_MouseLeave"
-                    MouseLeftButtonDown="ControlSurface_MouseLeftButtonDown"
-                    MouseLeftButtonUp="ControlSurface_MouseLeftButtonUp"
                     MouseWheel="ControlSurface_MouseWheel">
                 <Grid>
                     <ScrollViewer x:Name="Instructions"

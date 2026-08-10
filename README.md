@@ -13,7 +13,8 @@ affiliated with Apple or Microsoft.
 
 - Transparent, always-on-top overlay for an existing mirrored iPhone screen.
 - Absolute pointer alignment or relative mouse movement.
-- Left-click taps and AssistiveTouch Drag Lock support.
+- Natural left-click taps, long presses, and direct press-move-release dragging.
+- Left and right clicks exposed as distinct, assignable AssistiveTouch buttons.
 - Wheel-up and wheel-down exposed as assignable AssistiveTouch buttons 4 and 5.
 - Six configurable macros for navigating to saved AssistiveTouch gestures.
 - Configurable hotkeys and macro playback speed.
@@ -53,26 +54,27 @@ pointer reports. The overlay maps the Windows cursor directly onto the visible
 iPhone screen. Disable it to use relative movement; the sensitivity slider only
 applies in relative mode.
 
-For dragging, enable **Drag Lock** for the MirrorHid device in the iPhone's
-AssistiveTouch pointer settings. Hold the right mouse button until the item is
-picked up, release it, make one quick, short, mostly straight movement to the
-destination, then right-click once to drop. This gesture shape is currently the
-most reliable; slow, long, curved, or backtracking drags may lose path segments
-or be interpreted as a short movement because BLE mouse reports are serialized.
+Dragging is direct and does not require the AssistiveTouch **Drag Lock** option.
+Press and hold the left mouse button, move to the destination while continuing
+to hold it, then release to drop. A quick left press and release remains a
+normal tap. Left and right buttons now use the same live press-move-release
+report path; they differ only in the HID button number sent to the iPhone.
 
-## Assign wheel gestures
+## Assign right-click and wheel gestures
 
-MirrorHid reports wheel-up and wheel-down as mouse buttons 4 and 5 instead of
-ordinary scroll-wheel movement. This lets iOS bind each direction directly to
-an AssistiveTouch action or custom gesture.
+MirrorHid reports physical left-click as mouse button 1 and physical right-click
+as mouse button 2. Both preserve their held state while the pointer moves and
+remain independently assignable. Wheel-up and wheel-down are reported as
+buttons 4 and 5 instead of ordinary scrolling. This lets iOS bind each input
+directly to an AssistiveTouch action or custom gesture.
 
 1. Create and save the desired gestures under
    `Settings > Accessibility > Touch > AssistiveTouch > Create New Gesture`.
 2. Open `AssistiveTouch > Devices`, select the Windows PC / MirrorHid device,
    and choose **Customize Additional Buttons**.
-3. When iOS asks for an input, rotate the wheel upward and assign the desired
-   action, such as Zoom In.
-4. Repeat with wheel-down and assign the other action, such as Zoom Out.
+3. When iOS asks for an input, left- or right-click and assign the desired action
+   or saved custom gesture.
+4. Repeat with wheel-up and wheel-down for actions such as Zoom In and Zoom Out.
 
 If upgrading from a build with a different HID descriptor, forget the device
 on the iPhone and pair it again before configuring the additional buttons.
@@ -157,9 +159,8 @@ the arrow keys to move the pointer, Space to click, and Q to quit.
   forgetting and re-pairing the device.
 - Macro coordinates depend on overlay alignment, phone orientation, and the
   current AssistiveTouch menu layout.
-- Drag Lock is currently reliable only for quick, short, mostly straight
-  movements. Longer or multi-direction paths can be compacted or delayed by
-  the BLE report queue and may not reproduce correctly on the iPhone.
+- Extremely fast pointer movement may be coalesced because BLE notifications
+  are serialized, although the final held position is preserved before release.
 - MirrorHid is experimental and has not been tested across every Windows
   adapter, iPhone model, iOS version, or mirroring application.
 
