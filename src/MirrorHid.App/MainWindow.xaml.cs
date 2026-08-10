@@ -117,6 +117,8 @@ public partial class MainWindow : Window
     private double _resizeStartHeight;
     private double _resizeStartDpiScaleX = 1;
     private double _resizeStartDpiScaleY = 1;
+    private bool _shutdownInProgress;
+    private bool _shutdownCompleted;
 
     private static MacroSlot[] CreateDefaultMacroSlots() =>
     [
@@ -1692,22 +1694,61 @@ public partial class MainWindow : Window
     {
         SaveWindowPlacement();
 
-        if ((_leftButtonDown || _rightButtonDown) && _mouse is not null)
+        if (_shutdownCompleted)
         {
-            await _mouse.SendAsync(0, 0, 0, 0);
+            return;
         }
 
-        _reportPumpCancellation.Cancel();
-        if (_reportPump is not null)
+        e.Cancel = true;
+        if (_shutdownInProgress)
         {
-            await _reportPump;
+            return;
         }
 
-        if (_mouse is not null)
+        _shutdownInProgress = true;
+        try
         {
-            await _mouse.DisposeAsync();
-        }
+            _reportPumpCancellation.Cancel();
+            if (_reportPump is not null)
+            {
+                await _reportPump;
+            }
 
-        _reportPumpCancellation.Dispose();
+            BleHidMouse? mouse = _mouse;
+            _mouse = null;
+            if (mouse is not null)
+            {
+                try
+                {
+                    if (_absoluteMode && mouse.IsAbsolutePointerSubscribed)
+                    {
+                        await mouse.SendAbsoluteAsync(
+                            0,
+                            _absoluteX,
+                            _absoluteY,
+                            0);
+                    }
+                    else
+                    {
+                        await mouse.SendAsync(0, 0, 0, 0);
+                    }
+                }
+                finally
+                {
+                    await mouse.DisposeAsync();
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Shutdown failed: {exception.Message}");
+        }
+        finally
+        {
+            _reportPumpCancellation.Dispose();
+            _shutdownInProgress = false;
+            _shutdownCompleted = true;
+            Close();
+        }
     }
 }
