@@ -10,7 +10,7 @@ if exist "%ROOT%.tools\dotnet\dotnet.exe" (
 
 if not exist "%APP%" (
   echo Publishing MirrorHid for first use...
-  "%DOTNET%" publish "%ROOT%src\MirrorHid.App\MirrorHid.App.csproj" -c Release -o "%ROOT%dist\MirrorHid"
+  "%DOTNET%" publish "%ROOT%src\MirrorHid.App\MirrorHid.App.csproj" -c Release -r win-x64 --self-contained true -o "%ROOT%dist\MirrorHid"
   if errorlevel 1 exit /b %errorlevel%
 )
 

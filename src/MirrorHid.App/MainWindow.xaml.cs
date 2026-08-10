@@ -14,6 +14,8 @@ public partial class MainWindow : Window
 {
     private const double DefaultWindowWidth = 430;
     private const double DefaultWindowHeight = 800;
+    private const byte LeftButtonMask = 0x01;
+    private const byte RightButtonMask = 0x02;
 
     private enum HotkeyCaptureTarget
     {
@@ -95,7 +97,7 @@ public partial class MainWindow : Window
     private byte _desiredButtons;
     private bool _controlEnabled;
     private bool _leftButtonDown;
-    private bool _leftTapHeld;
+    private bool _rightButtonDown;
     private bool _assistiveTouchMenuMacroRunning;
     private int _assistiveTouchMenuMacroGeneration;
     private NormalizedPoint? _assistiveTouchMacroRestorePoint;
@@ -109,8 +111,6 @@ public partial class MainWindow : Window
     private readonly List<NormalizedPoint> _pendingRecordingSteps = new();
     private bool _updatingMacroUi;
     private bool _macroUiReady;
-    private bool _dragLockAwaitingDrop;
-    private bool _suppressRightUntilUp;
     private bool _isResizing;
     private Point _resizeStartScreen;
     private double _resizeStartWidth;
@@ -911,19 +911,11 @@ public partial class MainWindow : Window
             Mouse.Capture(null);
         }
 
-        if (!enabled && _leftTapHeld)
+        if (!enabled && _rightButtonDown)
         {
-            _leftTapHeld = false;
-            Mouse.Capture(null);
-        }
-
-        if (!enabled && _dragLockAwaitingDrop)
-        {
-            // A native iOS Drag Lock survives the original button release. Send
-            // its terminating click before leaving control mode.
-            QueueButtonState(1);
+            _rightButtonDown = false;
             QueueButtonState(0);
-            _dragLockAwaitingDrop = false;
+            Mouse.Capture(null);
         }
 
         if (!enabled)
@@ -931,7 +923,6 @@ public partial class MainWindow : Window
             _recordAwaitingSlot = false;
             _recordingSlotIndex = null;
             _pendingRecordingSteps.Clear();
-            _suppressRightUntilUp = false;
             _assistiveTouchMenuMacroRunning = false;
             _assistiveTouchMenuMacroGeneration++;
         }
@@ -947,7 +938,7 @@ public partial class MainWindow : Window
 
     private void ControlSurface_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (!_leftButtonDown)
+        if (!_leftButtonDown && !_rightButtonDown)
         {
             _lastPointer = null;
         }
@@ -968,33 +959,29 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Some transparent-window paths can swallow a right-button edge. The
-        // physical state on movement independently recovers both transitions.
-        if (e.RightButton == MouseButtonState.Pressed &&
-            _dragLockAwaitingDrop &&
-            !_suppressRightUntilUp)
-        {
-            DropNativeDragLock(current);
-        }
-        else if (e.RightButton == MouseButtonState.Pressed &&
+        // Physical state on movement independently recovers transitions that
+        // can occasionally be swallowed by a transparent window.
+        if (e.LeftButton == MouseButtonState.Pressed &&
             !_leftButtonDown &&
-            !_suppressRightUntilUp &&
             ControlSurface.IsMouseOver)
         {
-            BeginRightDrag(current);
+            BeginLeftPress(current);
         }
-        else if (e.RightButton == MouseButtonState.Released && _leftButtonDown)
+        else if (e.LeftButton == MouseButtonState.Released && _leftButtonDown)
         {
-            EndRightDrag(current);
-        }
-        // Left is intentionally tap-only. Do not forward its held movement to
-        // iOS, even if Windows reports many move events before button-up.
-        if (_leftTapHeld)
-        {
-            _lastPointer = current;
-            return;
+            EndLeftPress(current);
         }
 
+        if (e.RightButton == MouseButtonState.Pressed &&
+            !_rightButtonDown &&
+            ControlSurface.IsMouseOver)
+        {
+            BeginRightPress(current);
+        }
+        else if (e.RightButton == MouseButtonState.Released && _rightButtonDown)
+        {
+            EndRightPress(current);
+        }
         if (_absoluteMode)
         {
             QueueAbsolutePosition(current);
@@ -1013,59 +1000,11 @@ public partial class MainWindow : Window
         _lastPointer = current;
     }
 
-    private void ControlSurface_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (!_controlEnabled)
-        {
-            return;
-        }
-
-        if (_assistiveTouchMenuMacroRunning)
-        {
-            e.Handled = true;
-            return;
-        }
-
-        _leftTapHeld = true;
-        ControlSurface.CaptureMouse();
-        var current = e.GetPosition(ControlSurface);
-        _lastPointer = current;
-        if (_absoluteMode)
-        {
-            QueueAbsolutePosition(current);
-        }
-        // A Windows left click is always a discrete iPhone tap. Dedicated drag
-        // state is bound to the right button below, avoiding gesture ambiguity.
-        QueueButtonState(1);
-        QueueButtonState(0);
-        e.Handled = true;
-    }
-
-    private void ControlSurface_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (!_controlEnabled)
-        {
-            return;
-        }
-
-        if (_assistiveTouchMenuMacroRunning)
-        {
-            e.Handled = true;
-            return;
-        }
-
-        _leftTapHeld = false;
-        Mouse.Capture(null);
-        // Do not jump the iPhone pointer on button-up. The next unpressed mouse
-        // move resynchronizes it after the tap release has been delivered.
-        _lastPointer = null;
-        e.Handled = true;
-    }
-
     private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (!_controlEnabled ||
-            e.ChangedButton != MouseButton.Right ||
+            (e.ChangedButton != MouseButton.Left &&
+                e.ChangedButton != MouseButton.Right) ||
             !ControlSurface.IsMouseOver)
         {
             return;
@@ -1078,20 +1017,22 @@ public partial class MainWindow : Window
         }
 
         var current = e.GetPosition(ControlSurface);
-        if (_dragLockAwaitingDrop)
+        if (e.ChangedButton == MouseButton.Left)
         {
-            DropNativeDragLock(current);
+            BeginLeftPress(current);
+            e.Handled = true;
+            return;
         }
-        else
-        {
-            BeginRightDrag(current);
-        }
+
+        BeginRightPress(current);
         e.Handled = true;
     }
 
     private void Window_PreviewMouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_controlEnabled || e.ChangedButton != MouseButton.Right)
+        if (!_controlEnabled ||
+            (e.ChangedButton != MouseButton.Left &&
+                e.ChangedButton != MouseButton.Right))
         {
             return;
         }
@@ -1102,24 +1043,18 @@ public partial class MainWindow : Window
             return;
         }
 
-
-        if (_suppressRightUntilUp)
+        if (e.ChangedButton == MouseButton.Left)
         {
-            _suppressRightUntilUp = false;
+            EndLeftPress(e.GetPosition(ControlSurface));
             e.Handled = true;
             return;
         }
 
-        if (!_leftButtonDown)
-        {
-            return;
-        }
-
-        EndRightDrag(e.GetPosition(ControlSurface));
+        EndRightPress(e.GetPosition(ControlSurface));
         e.Handled = true;
     }
 
-    private void BeginRightDrag(Point current)
+    private void BeginLeftPress(Point current)
     {
         if (_leftButtonDown)
         {
@@ -1127,18 +1062,17 @@ public partial class MainWindow : Window
         }
 
         _leftButtonDown = true;
-        ActiveBannerText.Text =
-            "HOLD UNTIL PICKED UP  •  Then release and move freely";
+        ActiveBannerText.Text = "LEFT HELD  •  Move to drag  •  Release to drop";
         ControlSurface.CaptureMouse();
         _lastPointer = current;
         if (_absoluteMode)
         {
             QueueAbsolutePosition(current);
         }
-        QueueButtonState(1);
+        QueueButtonState((byte)(_desiredButtons | LeftButtonMask));
     }
 
-    private void EndRightDrag(Point current)
+    private void EndLeftPress(Point current)
     {
         if (!_leftButtonDown)
         {
@@ -1147,29 +1081,53 @@ public partial class MainWindow : Window
 
         _leftButtonDown = false;
         ActiveBannerText.Text =
-            "DRAG LOCK ACTIVE  •  Move freely  •  Right-click to drop";
+            "CONTROL ACTIVE  •  Left-drag is direct  •  Right-click is customizable";
         if (_absoluteMode)
         {
             QueueAbsolutePosition(current);
         }
-        QueueButtonState(0);
-        Mouse.Capture(null);
+        QueueButtonState((byte)(_desiredButtons & ~LeftButtonMask));
+        if (!_rightButtonDown)
+        {
+            Mouse.Capture(null);
+        }
         _lastPointer = current;
-        _dragLockAwaitingDrop = true;
     }
 
-    private void DropNativeDragLock(Point current)
+    private void BeginRightPress(Point current)
     {
-        _dragLockAwaitingDrop = false;
-        _suppressRightUntilUp = true;
+        if (_rightButtonDown)
+        {
+            return;
+        }
+
+        _rightButtonDown = true;
+        ControlSurface.CaptureMouse();
+        _lastPointer = current;
         if (_absoluteMode)
         {
             QueueAbsolutePosition(current);
         }
-        QueueButtonState(1);
-        QueueButtonState(0);
-        ActiveBannerText.Text =
-            "CONTROL ACTIVE  •  Right-hold to pick up  •  Click to drop";
+        QueueButtonState((byte)(_desiredButtons | RightButtonMask));
+    }
+
+    private void EndRightPress(Point current)
+    {
+        if (!_rightButtonDown)
+        {
+            return;
+        }
+
+        _rightButtonDown = false;
+        if (_absoluteMode)
+        {
+            QueueAbsolutePosition(current);
+        }
+        QueueButtonState((byte)(_desiredButtons & ~RightButtonMask));
+        if (!_leftButtonDown)
+        {
+            Mouse.Capture(null);
+        }
         _lastPointer = current;
     }
 
@@ -1734,7 +1692,7 @@ public partial class MainWindow : Window
     {
         SaveWindowPlacement();
 
-        if (_leftButtonDown && _mouse is not null)
+        if ((_leftButtonDown || _rightButtonDown) && _mouse is not null)
         {
             await _mouse.SendAsync(0, 0, 0, 0);
         }
