@@ -14,7 +14,7 @@ affiliated with Apple or Microsoft.
 - Transparent, always-on-top overlay for an existing mirrored iPhone screen.
 - Absolute pointer alignment or relative mouse movement.
 - Natural left-click taps, long presses, and direct press-move-release dragging.
-- Left and right clicks exposed as distinct, assignable AssistiveTouch buttons.
+- Left and right clicks sent as held HID buttons 2 and 3 respectively.
 - Wheel-up and wheel-down exposed as assignable AssistiveTouch buttons 4 and 5.
 - Six configurable macros for navigating to saved AssistiveTouch gestures.
 - Configurable hotkeys and macro playback speed.
@@ -62,19 +62,25 @@ report path; they differ only in the HID button number sent to the iPhone.
 
 ## Assign right-click and wheel gestures
 
-MirrorHid reports physical left-click as mouse button 1 and physical right-click
-as mouse button 2. Both preserve their held state while the pointer moves and
-remain independently assignable. Wheel-up and wheel-down are reported as
-buttons 4 and 5 instead of ordinary scrolling. This lets iOS bind each input
-directly to an AssistiveTouch action or custom gesture.
+MirrorHid reports physical left-click as mouse button 2 and physical right-click
+as mouse button 3. Both preserve their held state while the pointer moves.
+Button 1 is intentionally unused: on the tested iPhone it was interpreted as an
+immediate primary tap instead of preserving the hold needed for reliable direct
+dragging. This is an observed AssistiveTouch compatibility behavior, not a
+documented Apple guarantee, and may vary with other iOS versions or devices.
+
+Wheel-up and wheel-down are reported as buttons 4 and 5 instead of ordinary
+scrolling. Buttons 3 through 5 can be selected as additional inputs for an
+AssistiveTouch action or custom gesture.
 
 1. Create and save the desired gestures under
    `Settings > Accessibility > Touch > AssistiveTouch > Create New Gesture`.
 2. Open `AssistiveTouch > Devices`, select the Windows PC / MirrorHid device,
    and choose **Customize Additional Buttons**.
-3. When iOS asks for an input, left- or right-click and assign the desired action
-   or saved custom gesture.
-4. Repeat with wheel-up and wheel-down for actions such as Zoom In and Zoom Out.
+3. When iOS asks for an input, right-click to register Button 3 and assign the
+   desired action or saved custom gesture.
+4. Repeat with wheel-up and wheel-down to register Buttons 4 and 5 for actions
+   such as Zoom In and Zoom Out.
 
 If upgrading from a build with a different HID descriptor, forget the device
 on the iPhone and pair it again before configuring the additional buttons.
@@ -159,6 +165,8 @@ the arrow keys to move the pointer, Space to click, and Q to quit.
   forgetting and re-pairing the device.
 - Macro coordinates depend on overlay alignment, phone orientation, and the
   current AssistiveTouch menu layout.
+- Button 1 is unused because it did not preserve held movement during testing;
+  physical left and right clicks therefore report Buttons 2 and 3.
 - Extremely fast pointer movement may be coalesced because BLE notifications
   are serialized, although the final held position is preserved before release.
 - MirrorHid is experimental and has not been tested across every Windows
