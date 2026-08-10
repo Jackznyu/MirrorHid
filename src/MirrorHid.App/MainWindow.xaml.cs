@@ -36,6 +36,8 @@ public partial class MainWindow : Window
         TimeSpan.FromMilliseconds(90);
     private static readonly TimeSpan MacroMenuAnimationDelay =
         TimeSpan.FromMilliseconds(700);
+    private static readonly TimeSpan ShutdownOperationTimeout =
+        TimeSpan.FromSeconds(2);
 
     private readonly record struct NormalizedPoint(double X, double Y);
 
@@ -1690,6 +1692,22 @@ public partial class MainWindow : Window
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
+    private async Task RunShutdownStepAsync(Task operation, string description)
+    {
+        try
+        {
+            await operation.WaitAsync(ShutdownOperationTimeout);
+        }
+        catch (TimeoutException)
+        {
+            SetStatus($"Shutdown timed out while {description}.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Shutdown failed while {description}: {exception.Message}");
+        }
+    }
+
     private async void Window_Closing(object? sender, CancelEventArgs e)
     {
         SaveWindowPlacement();
@@ -1708,34 +1726,42 @@ public partial class MainWindow : Window
         _shutdownInProgress = true;
         try
         {
+            BleHidMouse? mouse = _mouse;
+            _mouse = null;
             _reportPumpCancellation.Cancel();
             if (_reportPump is not null)
             {
-                await _reportPump;
+                await RunShutdownStepAsync(
+                    _reportPump,
+                    "stopping pointer reports");
             }
 
-            BleHidMouse? mouse = _mouse;
-            _mouse = null;
             if (mouse is not null)
             {
                 try
                 {
                     if (_absoluteMode && mouse.IsAbsolutePointerSubscribed)
                     {
-                        await mouse.SendAbsoluteAsync(
-                            0,
-                            _absoluteX,
-                            _absoluteY,
-                            0);
+                        await RunShutdownStepAsync(
+                            mouse.SendAbsoluteAsync(
+                                0,
+                                _absoluteX,
+                                _absoluteY,
+                                0),
+                            "releasing the absolute pointer button");
                     }
                     else
                     {
-                        await mouse.SendAsync(0, 0, 0, 0);
+                        await RunShutdownStepAsync(
+                            mouse.SendAsync(0, 0, 0, 0),
+                            "releasing the pointer button");
                     }
                 }
                 finally
                 {
-                    await mouse.DisposeAsync();
+                    await RunShutdownStepAsync(
+                        mouse.DisposeAsync().AsTask(),
+                        "stopping Bluetooth advertising");
                 }
             }
         }
@@ -1745,7 +1771,11 @@ public partial class MainWindow : Window
         }
         finally
         {
-            _reportPumpCancellation.Dispose();
+            if (_reportPump?.IsCompleted != false)
+            {
+                _reportPumpCancellation.Dispose();
+            }
+
             _shutdownInProgress = false;
             _shutdownCompleted = true;
             Close();
