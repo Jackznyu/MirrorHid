@@ -22,3 +22,10 @@ jobs:
 
       - name: Build release configuration
         run: dotnet build .\src\MirrorHid.App\MirrorHid.App.csproj --configuration Release
+
+      - name: Run regression checks without Bluetooth hardware
+        run: dotnet run --project .\tests\MirrorHid.RegressionTests\MirrorHid.RegressionTests.csproj --configuration Release
+
+      - name: Check release tag validation
+        shell: pwsh
+        run: .\tests\Test-ReleaseWorkflow.ps1

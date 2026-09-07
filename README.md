@@ -31,8 +31,10 @@ affiliated with Apple or Microsoft.
 
 ## Quick start
 
-1. Clone the repository and run `run-overlay.cmd`. On first use, the script
-   publishes a release build to `dist\MirrorHid` and then launches it.
+1. Clone the repository and run `run-overlay.cmd`. The script incrementally
+   publishes the current source to `dist\MirrorHid` before every launch, so
+   pulling changes or switching branches cannot silently reuse an older build.
+   Source launches require the .NET SDK; the release ZIP can be run directly.
 2. Start the application you normally use to mirror the iPhone screen.
 3. On the iPhone, open
    `Settings > Accessibility > Touch > AssistiveTouch > Devices > Bluetooth Devices`.
@@ -64,10 +66,12 @@ report path; they differ only in the HID button number sent to the iPhone.
 
 MirrorHid reports physical left-click as mouse button 2 and physical right-click
 as mouse button 3. Both preserve their held state while the pointer moves.
-Button 1 is intentionally unused: on the tested iPhone it was interpreted as an
-immediate primary tap instead of preserving the hold needed for reliable direct
-dragging. This is an observed AssistiveTouch compatibility behavior, not a
-documented Apple guarantee, and may vary with other iOS versions or devices.
+Physical mouse clicks do not use button 1: on the tested iPhone it was
+interpreted as an immediate primary tap instead of preserving the hold needed
+for reliable direct dragging. This is an observed AssistiveTouch compatibility
+behavior, not a documented Apple guarantee, and may vary with other iOS
+versions or devices.
+Macro playback and recording still use button 1 for immediate taps.
 
 Wheel-up and wheel-down are reported as buttons 4 and 5 instead of ordinary
 scrolling. Buttons 3 through 5 can be selected as additional inputs for an
@@ -132,6 +136,16 @@ The project targets `net10.0-windows10.0.19041.0` and x64. A GitHub Actions
 workflow builds the release configuration on Windows for pushes and pull
 requests.
 
+Run the regression checks without a Bluetooth adapter or iPhone:
+
+```powershell
+dotnet run --project .\tests\MirrorHid.RegressionTests\MirrorHid.RegressionTests.csproj --configuration Release
+```
+
+These checks exercise macro cancellation, input release, editable-control
+hotkeys, and report delivery while the UI dispatcher is blocked. They do not
+replace testing pairing, dragging, or gestures on an iPhone.
+
 ## Releases
 
 Pushing a version tag runs the Release workflow, creates a self-contained
@@ -165,8 +179,9 @@ the arrow keys to move the pointer, Space to click, and Q to quit.
   forgetting and re-pairing the device.
 - Macro coordinates depend on overlay alignment, phone orientation, and the
   current AssistiveTouch menu layout.
-- Button 1 is unused because it did not preserve held movement during testing;
-  physical left and right clicks therefore report Buttons 2 and 3.
+- Button 1 is unused for physical clicks because it did not preserve held
+  movement during testing; physical left and right clicks therefore report
+  Buttons 2 and 3.
 - Extremely fast pointer movement may be coalesced because BLE notifications
   are serialized, although the final held position is preserved before release.
 - MirrorHid is experimental and has not been tested across every Windows

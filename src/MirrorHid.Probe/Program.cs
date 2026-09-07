@@ -79,7 +79,7 @@ internal static class Program
     }
 }
 
-public sealed class BleHidMouse : IAsyncDisposable
+public sealed class BleHidMouse : IHidMouse
 {
     private const ushort ReportReferenceDescriptor = 0x2908;
 
