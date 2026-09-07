@@ -190,15 +190,21 @@ internal static class Program
         try
         {
             Require(mouse.Released.Task.Wait(TimeSpan.FromSeconds(3)), "Reports depend on the blocked UI dispatcher.");
-            Require(mouse.Reports.All(report => report.Thread != uiThread), "Report ran on the UI thread.");
-            Require(mouse.Reports.Select(report => report.Buttons).SequenceEqual(new byte[] { 2, 2, 0 }),
-                "Press/final-held-position/release ordering changed.");
         }
         finally
         {
             cancellation.Cancel();
             await pump.WaitAsync(TimeSpan.FromSeconds(3));
         }
+
+        // Inspect a completed capture. The pump may flush a coalesced position
+        // after the release signal, but it must never press a button again.
+        var reports = mouse.Reports.ToArray();
+        Require(reports.All(report => report.Thread != uiThread), "Report ran on the UI thread.");
+        var buttons = reports.Select(report => report.Buttons).ToArray();
+        Require(buttons.Take(3).SequenceEqual(new byte[] { 2, 2, 0 }) &&
+                buttons.Skip(3).All(button => button == 0),
+            $"Press/final-held-position/release ordering changed: {string.Join(",", buttons)}.");
     }
 
     private static KeyEventArgs KeyEvent(Key key, object source) => new(
