@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using MirrorHid.Probe;
@@ -88,7 +89,7 @@ public partial class MainWindow : Window
     private readonly object _reportSync = new();
     private readonly LinkedList<ReportFrame> _reportFrames = new();
     private readonly CancellationTokenSource _reportPumpCancellation = new();
-    private BleHidMouse? _mouse;
+    private IHidMouse? _mouse;
     private Task? _reportPump;
     private Point? _lastPointer;
     private int _pendingWheel;
@@ -157,9 +158,17 @@ public partial class MainWindow : Window
         _macroUiReady = true;
         try
         {
-            _mouse = await BleHidMouse.CreateAsync(SetStatus);
-            _mouse.StartAdvertising();
-            _reportPump = RunReportPumpAsync(_reportPumpCancellation.Token);
+            var mouse = await BleHidMouse.CreateAsync(SetStatus);
+            if (_shutdownInProgress || _shutdownCompleted)
+            {
+                await mouse.DisposeAsync();
+                return;
+            }
+
+            _mouse = mouse;
+            mouse.StartAdvertising();
+            var cancellationToken = _reportPumpCancellation.Token;
+            _reportPump = Task.Run(() => RunReportPumpAsync(mouse, cancellationToken));
             SetStatus("Advertising; waiting for iPhone…");
         }
         catch (Exception exception)
@@ -248,16 +257,26 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (key == _toggleControlHotkey)
+        // Escape remains an emergency release even while an editor has focus.
+        if (key == Key.Escape && _controlEnabled)
         {
-            SetControlEnabled(!_controlEnabled);
+            SetControlEnabled(false);
             e.Handled = true;
             return;
         }
 
-        if (key == Key.Escape && _controlEnabled)
+        if (Keyboard.FocusedElement is TextBoxBase or PasswordBox ||
+            e.OriginalSource is TextBoxBase or PasswordBox)
         {
-            SetControlEnabled(false);
+            return;
+        }
+
+        if (key == _toggleControlHotkey)
+        {
+            if (!e.IsRepeat)
+            {
+                SetControlEnabled(!_controlEnabled);
+            }
             e.Handled = true;
             return;
         }
@@ -758,7 +777,11 @@ public partial class MainWindow : Window
                 ActiveBannerText.Text =
                     $"RUNNING {slot.Name.ToUpperInvariant()}  •  " +
                     $"Step {index + 1}/{steps.Count}";
-                await DirectPhoneClickAsync(steps[index], speed);
+                await DirectPhoneClickAsync(steps[index], speed, generation);
+                if (!IsAssistiveTouchMenuMacroCurrent(generation))
+                {
+                    return;
+                }
                 if (index < steps.Count - 1)
                 {
                     await Task.Delay(ScaleMacroDelay(
@@ -785,6 +808,10 @@ public partial class MainWindow : Window
                     MacroPointerSettleDelay,
                     minimumMilliseconds: 50,
                     speed));
+                if (!IsAssistiveTouchMenuMacroCurrent(generation))
+                {
+                    return;
+                }
                 ActiveBannerText.Text =
                     $"{slot.Name.ToUpperInvariant()} SELECTED";
             }
@@ -807,8 +834,14 @@ public partial class MainWindow : Window
 
     private async Task DirectPhoneClickAsync(
         NormalizedPoint normalized,
-        double speed)
+        double speed,
+        int generation)
     {
+        if (!IsAssistiveTouchMenuMacroCurrent(generation))
+        {
+            return;
+        }
+
         var controlPoint = DenormalizeControlPoint(normalized);
         // Move only the iPhone pointer. Live Windows-cursor alignment is paused
         // by the macro-running guard until all menu clicks have completed.
@@ -818,11 +851,22 @@ public partial class MainWindow : Window
             minimumMilliseconds: 50,
             speed));
 
+        if (!IsAssistiveTouchMenuMacroCurrent(generation))
+        {
+            return;
+        }
+
         QueueButtonState(1);
         await Task.Delay(ScaleMacroDelay(
             MacroButtonHoldDelay,
             minimumMilliseconds: 35,
             speed));
+        // Disabling control already clears queued input and releases every button.
+        // A stale continuation must not release a new drag or macro's button.
+        if (!IsAssistiveTouchMenuMacroCurrent(generation))
+        {
+            return;
+        }
         QueueButtonState(0);
         await Task.Delay(ScaleMacroDelay(
             MacroPointerSettleDelay,
@@ -908,27 +952,27 @@ public partial class MainWindow : Window
             QueueAbsolutePosition(Mouse.GetPosition(ControlSurface));
         }
 
-        if (!enabled && _leftButtonDown)
-        {
-            _leftButtonDown = false;
-            QueueButtonState(0);
-            Mouse.Capture(null);
-        }
-
-        if (!enabled && _rightButtonDown)
-        {
-            _rightButtonDown = false;
-            QueueButtonState(0);
-            Mouse.Capture(null);
-        }
-
         if (!enabled)
         {
+            _leftButtonDown = false;
+            _rightButtonDown = false;
+            Mouse.Capture(null);
             _recordAwaitingSlot = false;
             _recordingSlotIndex = null;
             _pendingRecordingSteps.Clear();
             _assistiveTouchMenuMacroRunning = false;
             _assistiveTouchMenuMacroGeneration++;
+            _assistiveTouchMacroRestorePoint = null;
+            lock (_reportSync)
+            {
+                _reportFrames.Clear();
+                _pendingWheel = 0;
+                _absolutePositionDirty = false;
+                _desiredButtons = 0;
+                // Force a release even if the last press was already dequeued.
+                _reportFrames.AddLast(new ReportFrame(
+                    0, 0, 0, _absoluteX, _absoluteY, IsTransition: true));
+            }
         }
     }
 
@@ -1399,20 +1443,14 @@ public partial class MainWindow : Window
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
-    private async Task RunReportPumpAsync(CancellationToken cancellationToken)
+    private async Task RunReportPumpAsync(IHidMouse mouse, CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(4));
 
         try
         {
-            while (await timer.WaitForNextTickAsync(cancellationToken))
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                BleHidMouse? mouse = _mouse;
-                if (mouse is null)
-                {
-                    continue;
-                }
-
                 byte buttons;
                 int x;
                 int y;
@@ -1478,18 +1516,23 @@ public partial class MainWindow : Window
 
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (absoluteMode && mouse.IsAbsolutePointerSubscribed)
                     {
                         await mouse.SendAbsoluteAsync(
                             buttons,
                             absoluteX,
                             absoluteY,
-                            wheel);
+                            wheel).ConfigureAwait(false);
                     }
                     else
                     {
-                        await mouse.SendAsync(buttons, x, y, wheel);
+                        await mouse.SendAsync(buttons, x, y, wheel).ConfigureAwait(false);
                     }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception exception)
                 {
@@ -1726,7 +1769,8 @@ public partial class MainWindow : Window
         _shutdownInProgress = true;
         try
         {
-            BleHidMouse? mouse = _mouse;
+            SetControlEnabled(false);
+            IHidMouse? mouse = _mouse;
             _mouse = null;
             _reportPumpCancellation.Cancel();
             if (_reportPump is not null)
